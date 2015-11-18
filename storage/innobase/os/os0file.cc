@@ -2680,6 +2680,7 @@ os_file_pwrite(
 			break;
 		}
 	}
+	os_thread_sleep(100000 /* 0.1 sec */);
 
 #if !defined(HAVE_ATOMIC_BUILTINS) || UNIV_WORD_SIZE < 8
 	os_mutex_enter(os_file_count_mutex);

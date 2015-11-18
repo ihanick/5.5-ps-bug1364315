@@ -2211,7 +2211,7 @@ Clears up tail of the LRU lists:
 The depth to which we scan each buffer pool is controlled by dynamic
 config parameter innodb_LRU_scan_depth. */
 UNIV_INTERN
-void
+ulint
 buf_flush_LRU_tail(void)
 /*====================*/
 {
@@ -2313,6 +2313,7 @@ buf_flush_LRU_tail(void)
 			MONITOR_LRU_BATCH_PAGES,
 			total_flushed);
 	}
+	return total_flushed;
 }
 
 /*********************************************************************//**
@@ -2608,16 +2609,23 @@ static
 void
 page_cleaner_adapt_lru_sleep_time(
 /*==============================*/
-	ulint*	lru_sleep_time)	/*!< in/out: desired page cleaner thread sleep
+	ulint*	lru_sleep_time,	/*!< in/out: desired page cleaner thread sleep
 				time for LRU flushes  */
+	ulint last_flushed_pages
+)
 {
 	ulint free_len = buf_get_total_free_list_length();
 	ulint max_free_len = srv_LRU_scan_depth * srv_buf_pool_instances;
 
 	if (free_len < max_free_len / 100) {
-
-		/* Free lists filled less than 1%, no sleep */
-		*lru_sleep_time = 0;
+		if (last_flushed_pages == 0) {
+			*lru_sleep_time += 50;
+			if (*lru_sleep_time > srv_cleaner_max_lru_time)
+				*lru_sleep_time = srv_cleaner_max_lru_time;
+		} else {
+			/* Free lists filled less than 1%, no sleep */
+			*lru_sleep_time = 0;
+		}
 	} else if (free_len > max_free_len / 5) {
 
 		/* Free lists filled more than 20%, sleep a bit more */
@@ -2824,6 +2832,7 @@ DECLARE_THREAD(buf_flush_lru_manager_thread)(
 			/*!< in: a dummy parameter required by
 			os_thread_create */
 {
+	ulint   last_flushed_pages = 0;
 	ulint	next_loop_time = ut_time_ms() + 1000;
 	ulint	lru_sleep_time = srv_cleaner_max_lru_time;
 
@@ -2852,11 +2861,11 @@ DECLARE_THREAD(buf_flush_lru_manager_thread)(
 
 		page_cleaner_sleep_if_needed(next_loop_time);
 
-		page_cleaner_adapt_lru_sleep_time(&lru_sleep_time);
+		page_cleaner_adapt_lru_sleep_time(&lru_sleep_time, last_flushed_pages);
 
 		next_loop_time = ut_time_ms() + lru_sleep_time;
 
-		buf_flush_LRU_tail();
+		last_flushed_pages = buf_flush_LRU_tail();
 	}
 
 	buf_lru_manager_is_active = false;

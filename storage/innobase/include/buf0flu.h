@@ -204,7 +204,7 @@ Clears up tail of the LRU lists:
 The depth to which we scan each buffer pool is controlled by dynamic
 config parameter innodb_LRU_scan_depth. */
 UNIV_INTERN
-void
+ulint
 buf_flush_LRU_tail(void);
 /*====================*/
 /*********************************************************************//**
