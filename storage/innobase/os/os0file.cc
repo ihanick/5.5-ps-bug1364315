@@ -2792,6 +2792,7 @@ os_file_get_last_error_low(
 		return(0);
 	}
 
+	ut_a(err != EINVAL);
 	if (report_all_errors
 	    || (err != ENOSPC && err != EEXIST && !on_error_silent)) {
 

@@ -1,0 +1,18 @@
+--source include/not_windows.inc
+--source include/have_innodb.inc
+
+call mtr.add_suppression("Failed to set O_DIRECT on file");
+call mtr.add_suppression("O_DIRECT is known to result in");
+
+--disable_warnings
+DROP TABLE IF EXISTS t1;
+--enable_warnings
+
+CREATE TABLE t1 (a INT, b BLOB) ENGINE=InnoDB;
+
+INSERT INTO t1 VALUES (1, REPEAT("a", 20000));
+
+--source include/shutdown_mysqld.inc
+--let $restart_parameters=restart:--innodb-flush-method=ALL_O_DIRECT
+--source include/start_mysqld.inc
+

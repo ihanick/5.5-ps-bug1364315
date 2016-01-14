@@ -3852,8 +3852,13 @@ recv_recovery_from_checkpoint_start(
 	ib_uint64_t	checkpoint_no;
 	lsn_t		contiguous_lsn;
 	byte*		buf;
-	byte		log_hdr_buf[LOG_FILE_HDR_SIZE];
+	byte*		log_hdr_buf;
+	byte		log_hdr_buf_tmp[LOG_FILE_HDR_SIZE+OS_FILE_LOG_BLOCK_SIZE];
 	dberr_t		err;
+
+	log_hdr_buf = static_cast<byte*>(
+		ut_align(log_hdr_buf_tmp, OS_FILE_LOG_BLOCK_SIZE));
+
 
 	/* Initialize red-black tree for fast insertions into the
 	flush_list during recovery process. */
