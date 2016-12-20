@@ -2605,6 +2605,25 @@ buf_get_total_free_list_length(void)
 }
 
 /*********************************************************************//**
+Returns the aggregate LRU list length over all buffer pool instances.
+@return total LRU list length. */
+MY_ATTRIBUTE((warn_unused_result))
+static
+ulint
+buf_get_total_LRU_list_length(void)
+/*================================*/
+{
+	ulint result = 0;
+
+	for (ulint i = 0; i < srv_buf_pool_instances; i++) {
+
+		result += UT_LIST_GET_LEN(buf_pool_from_array(i)->LRU);
+	}
+
+	return result;
+}
+
+/*********************************************************************//**
 Adjust the desired page cleaner thread sleep time for LRU flushes.  */
 MY_ATTRIBUTE((nonnull))
 static
@@ -2613,11 +2632,13 @@ page_cleaner_adapt_lru_sleep_time(
 /*==============================*/
 	ulint*	lru_sleep_time,	/*!< in/out: desired page cleaner thread sleep
 				time for LRU flushes  */
-	ulint	lru_n_flushed) /*!< in: number of flushed in previous batch */
+	ulint	lru_n_flushed,  /*!< in: number of flushed in previous batch */
+	ulint	ms_since_flush) /*!< in: ms since batch with flush */
 
 {
 	ulint free_len = buf_get_total_free_list_length();
-	ulint max_free_len = srv_LRU_scan_depth * srv_buf_pool_instances;
+	ulint max_free_len = ut_min(buf_get_total_LRU_list_length(),
+			srv_LRU_scan_depth * srv_buf_pool_instances);
 
 	if (free_len < max_free_len / 100 && lru_n_flushed) {
 
@@ -2625,11 +2646,13 @@ page_cleaner_adapt_lru_sleep_time(
 		and iteration was able to flush, no sleep */
 		*lru_sleep_time = 0;
 	} else if (free_len > max_free_len / 5
-		   || (free_len < max_free_len / 100 && lru_n_flushed == 0)) {
+		   || (free_len < max_free_len / 100 && lru_n_flushed == 0
+		       && ms_since_flush < 100000 && ms_since_flush > (*lru_sleep_time ? (*lru_sleep_time * 2) : 1)
+		      )) {
 
 		/* Free lists filled more than 20%
 		or no pages flushed in previous batch, sleep a bit more */
-		*lru_sleep_time += 50;
+		*lru_sleep_time += 1;
 		if (*lru_sleep_time > srv_cleaner_max_lru_time)
 			*lru_sleep_time = srv_cleaner_max_lru_time;
 	} else if (free_len < max_free_len / 20 && *lru_sleep_time >= 50) {
@@ -2832,6 +2855,7 @@ DECLARE_THREAD(buf_flush_lru_manager_thread)(
 			/*!< in: a dummy parameter required by
 			os_thread_create */
 {
+	ulint   last_flush_time = ut_time_ms();
 	ulint	next_loop_time = ut_time_ms() + 1000;
 	ulint	lru_sleep_time = srv_cleaner_max_lru_time;
 	ulint	lru_n_flushed = 1;
@@ -2861,11 +2885,15 @@ DECLARE_THREAD(buf_flush_lru_manager_thread)(
 
 		page_cleaner_sleep_if_needed(next_loop_time);
 
-		page_cleaner_adapt_lru_sleep_time(&lru_sleep_time, lru_n_flushed);
+		page_cleaner_adapt_lru_sleep_time(&lru_sleep_time,
+				lru_n_flushed,
+				next_loop_time - last_flush_time);
 
 		next_loop_time = ut_time_ms() + lru_sleep_time;
 
 		lru_n_flushed = buf_flush_LRU_tail();
+		if (lru_n_flushed)
+			last_flush_time = ut_time_ms();
 	}
 
 	buf_lru_manager_is_active = false;
